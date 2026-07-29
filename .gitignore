@@ -1,0 +1,37 @@
+# Qt / C++ build artifacts
+*.o
+*.obj
+*.exe
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+Makefile*
+*.qm
+*.qdb
+build-*/
+
+# Qt Creator user settings (machine-specific)
+*.pro.user
+*.pro.user.*
+
+# Debug and release directories
+debug/
+release/
+
+# Compiled libraries and plugins
+*.so
+*.so.*
+*.dylib
+*.dll
+*.a
+*.lib
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
