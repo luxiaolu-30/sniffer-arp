@@ -1,14 +1,20 @@
 /*
-* 本模块的功能：回调函数的实现
-* 作者：muzinan
+* Module: Main window implementation
+* Author: muzinan
+* Refactored: Network utils and IP location service extracted to separate classes,
+*             signal/slot modernized, smart pointers for attack objects
 */
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "getthread.h"
 #include "arpattack.h"
-#include<QFile>
-#include<QTextStream>
-#include<QVariant>
+#include "protocol_headers.h"
+#include "network_utils.h"
+#include "ip_location_service.h"
+
+#include <QFile>
+#include <QTextStream>
+#include <QVariant>
 #include <QMenuBar>
 #include <QToolBar>
 #include <QStatusBar>
@@ -21,63 +27,14 @@
 #include <QTableWidget>
 #include <iostream>
 #include <pcap.h>
-#include <libnet.h>
 #include <QDateTime>
-//协议函数类型定义AF—inet
-#include<netinet/in.h>
-//地址转换函数 inet_addr()等
-#include<arpa/inet.h>
-//socket
-#include<sys/socket.h>
-#include<sys/types.h>
 
-//标准输入输出
-#include<cstdio>
-#include<cstdlib>
-//提供memset等字符串操作函数
-#include<cstring>
-#include<string.h>
-#include<sys/ioctl.h>
-
-//read write execl
-#include<unistd.h>
-
-//gethostbyname
-#include<netdb.h>
-
-//#include<net/ethernet.h>
-#include<net/if.h>   //support ifreq
-#include<fstream>
-
-//timeval
-#include<sys/time.h>
-//#include<netinet/if_ether.h>
-#include<netinet/tcp.h>
-#include<netinet/udp.h>
-#include<netinet/ip_icmp.h>
-#include<netinet/in_systm.h>
-#include<netinet/ip.h>
-#include<netinet/in.h>
-
-#include<time.h>
-
-#include<iostream>
-#include<fcntl.h>
-#include <unistd.h>
-#include <signal.h>
-
-
-#include<QMessageBox>
-#include<QMouseEvent>
-#include<QMovie>
-#include<QIcon>
-#include<QString>
-#include<qfileinfo.h>
-#include<QDebug>
-#include<QDateTime>
-#include<QJsonParseError>
-#include<QUrlQuery>
-
+#include <QMouseEvent>
+#include <QMovie>
+#include <QIcon>
+#include <QString>
+#include <qfileinfo.h>
+#include <QUrlQuery>
 
 #include <QProxyStyle>
 #include <QPainter>
@@ -132,7 +89,7 @@ MainWindow::MainWindow(QWidget *parent) :
 
     setWindowTitle("one-eye@muzinan");
 
-    //设置计时器
+    //set timer
     startTimer(1000);
     //init ui
     init_UI();
@@ -140,57 +97,39 @@ MainWindow::MainWindow(QWidget *parent) :
     init_data();
 
        connect(ui->actionsave,&QAction::triggered,this,[=](){
-               //QMessageBox::critical(this,"critical","错误");
-               //提问对话框
                if(QMessageBox::Save== QMessageBox::question(this,"ques","save packets？",QMessageBox::Save|QMessageBox::Cancel,QMessageBox::Cancel )){
-                   //用户选择保存
                    cout<<"save file"<<endl;
                }
        });
 
-
         qRegisterMetaType<QVariant>("QVariant");
-        connect(&thread, SIGNAL(stringChanged(int,QVariant,QVariant,QVariant,QVariant,QVariant,QVariant)),
-           this, SLOT(changeString(int,QVariant,QVariant,QVariant,QVariant,QVariant,QVariant)));
 
-        connect(&arpthread,SIGNAL(get_host(QString)),this,SLOT(changeHost(QString)));
-        connect(&spkt,SIGNAL(writelog()), this, SLOT(writelog()));
+        // Modernized signal/slot connections (function pointer style)
+        connect(&thread, &getthread::stringChanged,
+           this, &MainWindow::changeString);
+
+        connect(&arpthread, &arpAttack::get_host, this, &MainWindow::changeHost);
+        connect(&spkt, &sendarp::writelog, this, &MainWindow::writelog);
 
         packet_count={0,0,0,0,0,0};
 
-        mNetAccessManager = new QNetworkAccessManager(this);
-        connect(mNetAccessManager, &QNetworkAccessManager::finished, this, &MainWindow::onReplied);
+        // IP location service (extracted from MainWindow)
+        m_ipLocationService = new IpLocationService(this);
+        connect(m_ipLocationService, &IpLocationService::ipInfoReady, this, &MainWindow::onIpInfoReady);
+        connect(m_ipLocationService, &IpLocationService::queryFailed, this, &MainWindow::onIpQueryFailed);
 }
 void MainWindow::init_UI(){
-//    // 设置按钮背景颜色和字体样式
-//    ui->startbtn->setStyleSheet("background-color: #007ACC; color: white; font: bold 14px;");
-//    // 设置按钮圆角
-//    ui->startbtn->setStyleSheet("border-radius: 10px;");
-//    // 设置按钮边框样式和宽度
-//    ui->startbtn->setStyleSheet("border: 2px solid #007ACC;");
-//    // 设置按钮悬停样式
-//    ui->startbtn->setStyleSheet("background-color: #008CBA; color: white;");
-//    ui->startbtn->setCursor(Qt::PointingHandCursor);
-//    // 设置按钮按下样式
-//    ui->startbtn->setStyleSheet("background-color: #005F8B; color: white;");
-
     //set table
-    //设置表头
     ui->tableWidget->setColumnCount(4);
-    //设置水平表头
     ui->tableWidget->setHorizontalHeaderLabels(QStringList()<<"Source"<<"Destination"<<"length"<<"Protocol");
-    //设置行数
     ui->tableWidget->setRowCount(0);
-    //单击选择一行
     ui->tableWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
-    //设置只能选择一行，不能多行选中
     ui->tableWidget->setSelectionMode(QAbstractItemView::SingleSelection);
     ui->tableWidget->setColumnWidth(0,150);
     ui->tableWidget->setColumnWidth(1,150);
     ui->tableWidget->setColumnWidth(2,150);
     ui->tableWidget->setColumnWidth(3,150);
     //set table
-    //设置表头
     ui->hosts->setColumnCount(6);
     ui->hosts->setHorizontalHeaderLabels(QStringList()<<"IP address"<<"HW_type"<<"Flags"<<"HW_address"<<"Mask"<<"Device");
     ui->hosts->setRowCount(0);
@@ -206,23 +145,21 @@ void MainWindow::init_UI(){
 void MainWindow::init_data(){
     //get interface ip and mask
         char error_content[PCAP_ERRBUF_SIZE];
-        struct in_addr net_ip_address;   //网络地址
-        struct in_addr net_mask_address;  //掩码地址
-        char* net_interface;        //接口名字
-        char* net_ip_string;        //网络地址字符串形式
-        char* net_mask_string;      //掩码地址字符串形式
-        u_int32_t net_ip;           //网络地址
-        u_int32_t net_mask;         //掩码地址
-        net_interface = pcap_lookupdev(error_content);  //获取网络地址
+        struct in_addr net_ip_address;
+        struct in_addr net_mask_address;
+        char* net_interface;
+        char* net_ip_string;
+        char* net_mask_string;
+        u_int32_t net_ip;
+        u_int32_t net_mask;
+        net_interface = pcap_lookupdev(error_content);
         QString network=QString(QLatin1String(net_interface));
-        pcap_lookupnet(net_interface,&net_ip,&net_mask,error_content);  //获取网络和掩码地址
-        //printf("Network Interface is:%s \n",net_interface); //网络接口
-        net_ip_address.s_addr=net_ip;//131028
-        net_ip_string=inet_ntoa(net_ip_address);   //->string
+        pcap_lookupnet(net_interface,&net_ip,&net_mask,error_content);
+        net_ip_address.s_addr=net_ip;
+        net_ip_string=inet_ntoa(net_ip_address);
         QString ip=QString(QLatin1String(net_ip_string));
-        //printf("Network IP Address is: %s \n",net_ip_string); //网络地址
-        net_mask_address.s_addr=net_mask;//16777215
-        net_mask_string=inet_ntoa(net_mask_address); //掩码->string
+        net_mask_address.s_addr=net_mask;
+        net_mask_string=inet_ntoa(net_mask_address);
         QString mask=QString(QLatin1String(net_mask_string));
 
         //get interface
@@ -313,57 +250,15 @@ void MainWindow::on_btn_des_mac_reset_clicked(){
     ui->line_des_mac->setText(QString(""));
 }
 void MainWindow::on_btn_src_ip_gateway_clicked(){
-        char buff[256];
-        int  nl = 0 ;
-        struct in_addr gw;
-        int flgs, ref, use, metric;
-        unsigned long int d,g,m;
-        FILE *fp = nullptr;
-
-        fp = fopen("/proc/net/route", "r");
-        if (fp == nullptr)
-        {
-        }
-        nl = 0 ;
-        memset(buff, 0,sizeof(buff));
-        while( fgets(buff, sizeof(buff), fp) != nullptr )
-        {
-            if(nl)
-            {
-                int ifl = 0;
-                while(buff[ifl]!=' ' && buff[ifl]!='\t' && buff[ifl]!='\0')
-                    ifl++;
-                buff[ifl]=0;    /* interface */
-                if(sscanf(buff+ifl+1, "%lx%lx%X%d%d%d%lx",
-                       &d, &g, &flgs, &ref, &use, &metric, &m)!=7)
-                {
-                    fclose(fp);
-                }
-
-                ifl = 0;        /* parse flags */
-                gw.s_addr   = g;
-
-                if(d==0)
-                {
-                    strcpy(gateway_addr,inet_ntoa(gw));
-                    fclose(fp);
-                }
-
-            }
-            nl++;
-        }
-        if(fp)
-        {
-            fclose(fp);
-            fp = nullptr;
-        }
-        qDebug()<<gateway_addr<<endl;
-        ui->line_src_ip->setText(gateway_addr);
-
+    // Gateway logic extracted to NetworkUtils::getGateway()
+    QString gateway = NetworkUtils::getGateway();
+    strcpy(gateway_addr, gateway.toLatin1().data());
+    qDebug()<<gateway_addr<<endl;
+    ui->line_src_ip->setText(gateway_addr);
 }
 void MainWindow::on_btn_src_mac_local_clicked(){
     QString dev=ui->all->currentText();
-    get_mac((char*)if_mac,string(dev.toStdString()).c_str());
+    NetworkUtils::getMAC((char*)if_mac, string(dev.toStdString()).c_str());
     ui->line_src_mac->setText(QString((char*)if_mac));
 }
 void MainWindow::on_btn_arp_start_clicked(){
@@ -404,13 +299,12 @@ void MainWindow::on_btn_arp_start_clicked(){
              char* src_ip_str = const_cast<char*>(ui->line_src_ip->text().toStdString().c_str());
              char* dst_ip_str = const_cast<char*>(ui->line_des_ip->text().toStdString().c_str());
              spkt.getParam(this->if_dev,op,src_mac,src_ip_str,eth_dst_mac,dst_ip_str,eth_dst_mac,eth_src_mac);
-             spkt.start();                          
+             spkt.start();
       }
 }
 void MainWindow::on_btn_arp_end_clicked(){
     if(spkt.isRunning())
     {
-//        spkt.quit();
         spkt.terminate();
     }
     ui->btn_arp_start->setEnabled(true);
@@ -450,7 +344,6 @@ void MainWindow::timerEvent(QTimerEvent *)
     static int num=1;
     QDateTime current_date_time =QDateTime::currentDateTime();
     current_date =current_date_time.toString("yyyy.MM.dd hh:mm:ss.zzz ddd");
-    //num转qstring
     ui->label_time->setText(current_date);
 }
 void MainWindow::on_startbtn_clicked(){
@@ -504,7 +397,6 @@ void MainWindow::changeString(int protocol_flag,QVariant ipdata,QVariant arpdata
         stream.str("");
         stream<<(int)Ipdata.ip_version;
         qstr=QString::fromStdString(stream.str());
-        //ui->tableWidget->setItem(row,1,new QTableWidgetItem(qstr));
         packet_info.ipversion=qstr;
 
         stream.str("");
@@ -516,7 +408,6 @@ void MainWindow::changeString(int protocol_flag,QVariant ipdata,QVariant arpdata
         stream.str("");
         stream<<(int)Ipdata.ip_checksum;
         qstr=QString::fromStdString(stream.str());
-        //ui->tableWidget->setItem(row,1,new QTableWidgetItem(qstr));
         packet_info.ipchecksum=qstr;
 
     }
@@ -525,13 +416,11 @@ void MainWindow::changeString(int protocol_flag,QVariant ipdata,QVariant arpdata
         stream.str("");
         stream<<(int)Arpdata.arp_hardware_type;
         qstr=QString::fromStdString(stream.str());
-        //ui->tableWidget->setItem(row,1,new QTableWidgetItem(qstr));
         packet_info.arp_HardwareType=qstr;
 
         stream.str("");
         stream<<(int)Arpdata.arp_protocol_type;
         qstr=QString::fromStdString(stream.str());
-        //ui->tableWidget->setItem(row,1,new QTableWidgetItem(qstr));
         packet_info.arp_ProtocolType=qstr;
 
         stream.str("");
@@ -730,9 +619,6 @@ void MainWindow::on_tableWidget_itemClicked(QTableWidgetItem *item)
          ui->listWidget->addItem("Destination Ip address:"+packet_vector[row].desip);
          ui->listWidget->addItem("ARP Hardware Type:"+packet_vector[row].arp_HardwareType);
          ui->listWidget->addItem("ARP Protocol Type:"+packet_vector[row].arp_ProtocolType);
-//            printf ( "ARP Hardware Length :%d\n" , hardware_length) ;
-//            printf ( "ARP Protocol Length :%d\n" , protocol_length) ;
-//            printf ( "ARP Operation :%d\n" , operation_code ) ;
     }
 
     if (packet_vector[row].proto_flag==tcp)
@@ -777,7 +663,6 @@ void MainWindow::on_getallbtn_clicked(){
         qDebug()<<"Error in findalldev"<<endl;
 
     }
-//    QMessageBox::information(this,"error","Error in findalldev",QMessageBox::Ok);
     pcap_if_t* d;
     for(d=alldev;d;d=d->next)
     {
@@ -789,16 +674,13 @@ void MainWindow::on_getallbtn_clicked(){
 void MainWindow::on_usebtn_clicked(){
     QString dev=ui->all->currentText();
     if_dev=const_cast<char*>(dev.toStdString().c_str());
-//    memcpy(if_dev,string(dev.toStdString()).c_str(),(size_t)dev.length());
     qDebug()<<"now use"<<if_dev<<endl;
-//    QMessageBox::information(this,"use",dev,QMessageBox::Ok);
     ui->att_dev->setText(dev);
     char mac[20];
-    get_mac(mac,string(dev.toStdString()).c_str());
-//    memcpy(eth_src_mac,mac,sizeof(mac));
+    NetworkUtils::getMAC(mac, string(dev.toStdString()).c_str());
     ui->att_mac->setText(QString((char*)mac));
     char ip[20];
-    get_ip(ip,string(dev.toStdString()).c_str());
+    NetworkUtils::getIP(ip, string(dev.toStdString()).c_str());
 
     ui->att_ip->setText(QString((char*)ip));
 
@@ -810,13 +692,8 @@ void MainWindow::on_usebtn_clicked(){
 }
 
 void MainWindow::on_btn_icmpflood_clicked(){
-//    struct in_addr addr;
-//    if(inet_aton("192.168.92.141",&addr)==0){
-//        qDebug()<<"ip addr error"<<endl;
-//        return;
-//    }
-//    icmpf=new icmpflood("192.168.1.100","192.168.1.1","1234","1","1000");
-    icmpf=new icmpflood(const_cast<char*>(ui->line_icmp_src_ip->text().toStdString().c_str()),
+    // Use smart pointer (replaces raw pointer assignment)
+    icmpf = std::make_unique<icmpflood>(const_cast<char*>(ui->line_icmp_src_ip->text().toStdString().c_str()),
                         const_cast<char*>(ui->line_icmp_dst_ip->text().toStdString().c_str()),
                         const_cast<char*>(ui->line_icmp_id->text().toStdString().c_str()),
                         const_cast<char*>(ui->line_icmp_start_seq->text().toStdString().c_str()),
@@ -829,52 +706,8 @@ void MainWindow::on_btn_icmp_localhost_clicked(){
     ui->line_icmp_src_ip->setText(ui->att_ip->text());
 }
 void MainWindow::on_btn_smurf_start_clicked(){
-
-    smf=new smurf(const_cast<char*>(ui->line_icmp_dst_ip->text().toStdString().c_str()));
-
-}
-void MainWindow::get_ip(char* local_ip,const char* eth_name){
-    int sock=socket(AF_INET,SOCK_DGRAM,0);
-    struct sockaddr_in sin;
-    struct ifreq ifr;
-    if(sock==-1){
-        qDebug()<<"get mac error"<<endl;
-        return;
-    }
-
-    strcpy(ifr.ifr_name,eth_name);
-
-    if(ioctl(sock,SIOCGIFADDR,&ifr)<0)
-    {
-        return;
-    }
-    memcpy(&sin,&ifr.ifr_addr,sizeof(sin));
-
-    sprintf(local_ip,"%s",inet_ntoa(sin.sin_addr));
-}
-void MainWindow::get_mac(char* mac,const char* eth_name){
-    struct ifreq ifr;
-    int socketfd=socket(AF_INET,SOCK_DGRAM,0);
-    if(socketfd==-1){
-        qDebug()<<"get mac error"<<endl;
-        return;
-    }
-    //填入ifr_name字段
-    strcpy(ifr.ifr_name,eth_name);
-    if(ioctl(socketfd,SIOCGIFHWADDR,&ifr)<0)
-    {
-       //close();
-       return;
-    }
-
-    sprintf(mac,"%02x:%02x:%02x:%02x:%02x:%02x",
-            (unsigned char)ifr.ifr_hwaddr.sa_data[0],
-            (unsigned char)ifr.ifr_hwaddr.sa_data[1],
-            (unsigned char)ifr.ifr_hwaddr.sa_data[2],
-            (unsigned char)ifr.ifr_hwaddr.sa_data[3],
-            (unsigned char)ifr.ifr_hwaddr.sa_data[4],
-            (unsigned char)ifr.ifr_hwaddr.sa_data[5]);
-    return;
+    // Use smart pointer (replaces raw pointer assignment)
+    smf = std::make_unique<smurf>(const_cast<char*>(ui->line_icmp_dst_ip->text().toStdString().c_str()));
 }
 void MainWindow::show_hosts(){
     arpthread.reflush_ips();
@@ -896,70 +729,10 @@ MainWindow::~MainWindow()
 {
    delete ui;
 }
-void MainWindow::onReplied(QNetworkReply* reply)
+
+// IP location query result handler (moved from parseJson/onReplied)
+void MainWindow::onIpInfoReady(const ipinfo& info)
 {
-    // 响应的状态码为200, 表示请求成功
-    int status_code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-
-    qDebug() << "operation:" << reply->operation();       // 请求方式
-    qDebug() << "status code:" << status_code;            // 状态码
-    qDebug() << "url:" << reply->url();                   // url
-    qDebug() << "raw header:" << reply->rawHeaderList();  // header
-
-    if ( reply->error() != QNetworkReply::NoError || status_code != 200 ) {
-        qDebug("%s(%d) error: %s", __FUNCTION__, __LINE__, reply->errorString().toLatin1().data());
-        QMessageBox::warning(this, "ip", "请求数据失败！", QMessageBox::Ok);
-    } else {
-        //获取响应信息
-        QByteArray byteArray = reply->readAll();
-        qDebug() << "read all:" << byteArray.data();
-        qDebug() <<"start parse"<<endl;
-        parseJson(byteArray);
-    }
-
-    reply->deleteLater();
-}
-//获取ip的信息
-void MainWindow::getWeatherInfo(QString cityCode)
-{
-    std::string urlstr="https://apis.tianapi.com/ipquery/index?key=a30d7e222fcc92f6d407a20479c10df1&ip="+cityCode.toStdString();
-    QUrl url(urlstr.c_str());
-    qDebug()<<url<<endl;
-    mNetAccessManager->get(QNetworkRequest(url));
-}
-//解析json数据
-void MainWindow::parseJson(QByteArray& byteArray)
-{
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(byteArray, &err);
-    if ( err.error != QJsonParseError::NoError ) {
-        qDebug("%s(%d): %s", __FUNCTION__, __LINE__, err.errorString().toLatin1().data());
-        return;
-    }
-
-    QJsonObject rootObj= doc.object();
-    qDebug() << rootObj.value("msg").toString();
-    QString message = rootObj.value("msg").toString();
-    if ( !message.contains("success") ) {
-        QMessageBox::warning(this, "天气", "请求数据失败！", QMessageBox::Ok);
-        return;
-    }
-
-    QJsonObject objData = rootObj.value("result").toObject();
-    info.ip=objData.value("ip").toString();
-    qDebug()<<info.ip<<endl;
-    info.continent=objData.value("continent").toString();
-    info.country=objData.value("country").toString();
-    info.province=objData.value("province").toString();
-    info.city=objData.value("city").toString();
-    info.district=objData.value("district").toString();
-    info.isp=objData.value("isp").toString();
-    info.areacode=objData.value("areacode").toString();
-    info.countrycode=objData.value("countrycode").toString();
-    info.countryenglish=objData.value("countryenglish").toString();
-    info.latitude=objData.value("latitude").toString();
-    info.longitude=objData.value("longitude").toString();
-
     ui->line_q_ip_2->setText(info.ip);
     ui->line_q_continent->setText(info.continent);
     ui->line_q_country->setText(info.country);
@@ -974,6 +747,15 @@ void MainWindow::parseJson(QByteArray& byteArray)
     ui->line_q_province->setText(info.province);
 }
 
+void MainWindow::onIpQueryFailed(const QString& errorMsg)
+{
+    QMessageBox::warning(this, "ip", errorMsg, QMessageBox::Ok);
+}
+
 void MainWindow::on_btn_q_query_clicked(){
-     getWeatherInfo(ui->line_q_ip->text());
+     m_ipLocationService->queryIpInfo(ui->line_q_ip->text());
+}
+
+void MainWindow::get_ip_bydomin(){
+    // Placeholder for domain-to-IP resolution (not yet implemented)
 }

@@ -43,7 +43,8 @@ void sendarp::getParam(char* dev,int op,unsigned char src_mac[6],char* src_ip_st
 int sendarp::send_pkt()
 {
     net_t = NULL;
-    src_ip, dst_ip = 0;
+    src_ip = 0;  // Fixed: was comma expression "src_ip, dst_ip = 0;" (only dst_ip was set)
+    dst_ip = 0;
 
     net_t = libnet_init(LIBNET_LINK_ADV, dev, err_buf);//初始化发送包结构
 //    src_ip = libnet_name2addr4(net_t, src_ip_str, LIBNET_RESOLVE);//将字符串类型的ip转换为顺序网络字节流
@@ -55,7 +56,7 @@ int sendarp::send_pkt()
     {
         fprintf(stderr, "libnet_init error/n");
         qDebug()<<err_buf<<endl;
-        return -1;
+        return -1;  // net_t is NULL, no need to destroy
     }
     switch (op) {
     case 'b':// request packet
@@ -102,6 +103,7 @@ int sendarp::send_pkt()
     if(p_tag == -1)
     {
         fprintf(stderr, "libnet_build_arp error/n");
+        libnet_destroy(net_t);
         return -1;
     }
 
@@ -117,6 +119,7 @@ int sendarp::send_pkt()
     if(p_tag == -1)
     {
         fprintf(stderr, "libnet_build_eth error/n");
+        libnet_destroy(net_t);
         return -1;
     }
     do{
@@ -125,6 +128,7 @@ int sendarp::send_pkt()
         if(res == -1)
         {
             fprintf(stderr, "libnet_write error\n");
+            libnet_destroy(net_t);
             return -1;
         }
 //        qDebug()<<"send over"<<endl;
@@ -133,6 +137,7 @@ int sendarp::send_pkt()
     }while(flag);
 
     libnet_destroy(net_t);
+    return 0;
 }
 
 QVector<unsigned char> sendarp::Qs2uc(QString strMac, unsigned char* mac)

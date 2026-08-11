@@ -9,38 +9,46 @@
 #include <QTextStream>
 #include <string>
 using namespace std;
+
 arpAttack::arpAttack(QThread *parent) : QThread(parent)
 {
-
+    m_arpFilePath = "list.txt";  // Default relative path (was hardcoded /home/muzinan/list.txt)
 }
+
 void arpAttack::run(){
     reflush_ips();
 }
+
 void arpAttack::setscan_ips(char* ips){
-    this->scan_ips=ips;
-    scan_flag=true;
+    this->scan_ips = ips;
+    scan_flag = true;
 }
+
 void arpAttack::reflush_ips()
 {
     if(scan_flag){
-        string ips=this->scan_ips;
-        string cmd_line="nmap -sP "+ips+" -T5";
+        string ips = this->scan_ips;
+        string cmd_line = "nmap -sP " + ips + " -T5";
         system(cmd_line.c_str());
-        qDebug()<<"scan_ips over"<<endl;
+        qDebug() << "scan_ips over" << endl;
     }
-    system("cat /proc/net/arp > /home/muzinan/list.txt");
-    QFile file("/home/muzinan/list.txt");
+
+    // Use configurable path instead of hardcoded /home/muzinan/list.txt
+    string cmd = "cat /proc/net/arp > " + m_arpFilePath.toStdString();
+    system(cmd.c_str());
+
+    QFile file(m_arpFilePath);
     if(!file.open(QIODevice::ReadOnly)){
-        qDebug()<<"open file failed"<<endl;
+        qDebug() << "open file failed" << endl;
     };
     QTextStream in(&file);
-    QString linetemp=in.readLine();
-    QString line=in.readLine();
+    QString linetemp = in.readLine();
+    QString line = in.readLine();
     while(!line.isNull()){
-        qDebug()<<line<<endl;
+        qDebug() << line << endl;
         emit get_host(line);
         msleep(100);
-        line=in.readLine();
+        line = in.readLine();
     }
 
     file.close();

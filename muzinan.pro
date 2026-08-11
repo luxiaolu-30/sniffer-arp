@@ -23,7 +23,9 @@ SOURCES += \
         src/sendarp.cpp \
         src/ip_info.cpp \
         src/icmpflood.cpp \
-        src/smurf.cpp
+        src/smurf.cpp \
+        src/network_utils.cpp \
+        src/ip_location_service.cpp
 
 HEADERS += \
         include/mainwindow.h \
@@ -31,7 +33,11 @@ HEADERS += \
         include/arpattack.h \
         include/sendarp.h \
         include/icmpflood.h \
-        include/smurf.h
+        include/smurf.h \
+        include/protocol_headers.h \
+        include/ip_info.h \
+        include/network_utils.h \
+        include/ip_location_service.h
 
 FORMS += \
         src/mainwindow.ui

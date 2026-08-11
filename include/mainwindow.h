@@ -4,18 +4,18 @@
 #include <QMainWindow>
 #include <vector>
 #include <QTableWidget>
+#include <memory>
 #include "getthread.h"
 #include "arpattack.h"
 #include "sendarp.h"
-
-#include"ip_info.cpp"
-#include<qfileinfo.h>
-#include<QJsonParseError>
-#include<QNetworkAccessManager>
-#include<QNetworkReply>
-
+#include "ip_info.h"
 #include "icmpflood.h"
 #include "smurf.h"
+#include "network_utils.h"
+#include "ip_location_service.h"
+
+#include <qfileinfo.h>
+#include <QJsonParseError>
 
 struct Packet_Info{
     int row;
@@ -46,7 +46,7 @@ struct Packet_Info{
     QString icmp_checksum;
 };
 
-//count_info
+// Packet count statistics
 struct count_info{
     long total;
     long ip_num;
@@ -54,8 +54,6 @@ struct count_info{
     long tcp_num;
     long udp_num;
     long icmp_num;
-    //long ospf_num;
-    //long dhcp_num;
 };
 
 namespace Ui {
@@ -70,15 +68,13 @@ public:
     getthread thread;
     arpAttack arpthread;
     sendarp spkt;
-    icmpflood* icmpf;
-    smurf* smf;
+    std::unique_ptr<icmpflood> icmpf;
+    std::unique_ptr<smurf> smf;
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
-    //重写定时器的事件
+    // Override timer event
      void timerEvent(QTimerEvent *);
      void get_ip_bydomin();
-     void get_ip(char* local_ip,const char* eth_name);
-     void get_mac(char* mac,const char* eth_ifr);
      void show_hosts();
      void init_UI();
      void init_data();
@@ -106,6 +102,9 @@ private slots:
      void writelog();
      void on_tableWidget_itemClicked(QTableWidgetItem *item);
      void on_hosts_itemClicked(QTableWidgetItem *item);
+     // Slot for IP location query results
+     void onIpInfoReady(const ipinfo& info);
+     void onIpQueryFailed(const QString& errorMsg);
 private:
     Ui::MainWindow *ui;
     std::vector<Packet_Info> packet_vector;
@@ -117,18 +116,8 @@ private:
     char des_ip[20];
     char* if_dev;
     QString current_date;
-public:
-    //处理返回的数据
-    void onReplied(QNetworkReply* reply);
-private:
-    //用于http通信的指针
-    QNetworkAccessManager* mNetAccessManager;
-    //发送https请求
-protected:
-     void getWeatherInfo(QString cityCode);
-     //解析json
-     void parseJson(QByteArray& byteArray);
-     ipinfo info;
+    // IP location service (extracted from MainWindow)
+    IpLocationService* m_ipLocationService;
 };
 
 #endif // MAINWINDOW_H
